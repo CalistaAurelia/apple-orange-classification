@@ -30,7 +30,7 @@ st.markdown("""
 # ============================================
 # LOAD MODEL
 # ============================================
-MODEL_PATH = "models/soal1_custom_cnn_v2_apple_orange.h5"
+MODEL_PATH = "apple_orange_v2/models/soal1_custom_cnn_v2_apple_orange.h5"
 
 @st.cache_resource
 def load_model():
