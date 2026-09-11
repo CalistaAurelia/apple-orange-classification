@@ -4,7 +4,6 @@ from tensorflow.keras.preprocessing import image
 import numpy as np
 from PIL import Image
 
-
 # ============================================
 # KONFIGURASI HALAMAN
 # ============================================
@@ -14,88 +13,52 @@ st.set_page_config(
     layout="wide",
 )
 
-
-# ============================================
-# CUSTOM CSS
-# Tampilan dibuat mengikuti app (2).py
-# ============================================
 st.markdown("""
 <style>
 [data-testid="stSidebar"] {
     background-color: #ff4b4b;
 }
-
 [data-testid="stSidebar"] * {
     color: white !important;
 }
-
 [data-testid="stCaptionContainer"] {
     opacity: 1 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ============================================
 # LOAD MODEL
 # ============================================
-MODEL_PATH = "models/soal1_mobilenetv2_transfer_apple_orange.h5"
-
+MODEL_PATH = "apple_orange_v3/models/soal1_mobilenetv2_transfer_apple_orange.h5"
 
 @st.cache_resource
 def load_model():
     return tf.keras.models.load_model(MODEL_PATH)
 
-
 model = load_model()
 
-
-# ============================================
-# KONFIGURASI MODEL
-# Sesuai notebook:
-# IMG_SIZE = (128, 128)
-# class_names = ['apple', 'orange']
-#
-# Model MobileNetV2 memiliki:
-# - input 128 x 128 x 3
-# - data augmentation di dalam model
-# - Rescaling(1./127.5, offset=-1) di dalam model
-# - output sigmoid untuk binary classification
-#
-# Karena preprocessing Rescaling sudah ada di dalam model,
-# gambar TIDAK dinormalisasi manual di app.
-# ============================================
+# Sesuai notebook: IMG_SIZE = (128, 128), class_names = ['apple', 'orange']
 IMG_SIZE = (128, 128)
 CLASS_NAMES = ["apple", "orange"]
-
 
 # ============================================
 # SIDEBAR — INFORMATION MODEL
 # ============================================
 with st.sidebar:
     st.header("Information Model")
-
     st.markdown("**Model:** MobileNetV2 (Transfer Learning)")
-    st.markdown("**Jenis Model:** Convolutional Neural Network")
+    st.markdown("**Jenis Model:** Convolutional Neural Network (Pretrained ImageNet)")
     st.markdown("**Kelas yang dapat diprediksi:**")
     st.markdown("- Apple")
     st.markdown("- Orange")
-
     st.divider()
-
     st.caption(
-        "MobileNetV2 menggunakan transfer learning dengan "
-        "pretrained ImageNet. Base model dibekukan (frozen) "
-        "dan ditambahkan Global Average Pooling, Dense 128, "
-        "Dropout 0.3, serta output sigmoid."
+        "Model versi pretrained (V3) menggunakan Transfer Learning MobileNetV2. "
+        "Accuracy: 94.55% | F1 Score: 0.9492. "
+        "Fitur ImageNet pretrained untuk performa dan "
+        "konvergensi training yang lebih baik dibanding Custom CNN."
     )
-
-    st.caption(
-        "Test Accuracy: 96.36% | F1 Score: 96.67%. "
-        "Model menunjukkan performa terbaik dibandingkan "
-        "model Custom CNN pada notebook."
-    )
-
 
 # ============================================
 # MAIN CONTENT
@@ -107,99 +70,49 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 # 2. Upload gambar
 with st.container(border=True):
     uploaded_file = st.file_uploader(
-        "Upload gambar untuk diklasifikasikan",
-        type=["jpg", "jpeg", "png"]
+        "Upload gambar untuk diklasifikasikan", type=["jpg", "jpeg", "png"]
     )
-
 
 if uploaded_file is not None:
-
     # 3. Preview gambar
     img = Image.open(uploaded_file).convert("RGB")
-    st.image(
-        img,
-        caption="Gambar yang diupload",
-        width=350
-    )
+    st.image(img, caption="Gambar yang diupload", width=350)
 
-    predict_clicked = st.button(
-        "Deteksi",
-        type="primary"
-    )
+    predict_clicked = st.button("Deteksi", type="primary")
 
     if predict_clicked:
 
-        # ============================================
-        # PREPROCESSING
-        # ============================================
-        # Sesuai notebook, model menerima input 128x128x3.
-        #
-        # Tidak dilakukan /255 atau mnv2_preprocess()
-        # secara manual karena model yang disimpan sudah
-        # memiliki layer:
-        #
-        # Rescaling(1./127.5, offset=-1)
-        #
-        # di dalam arsitekturnya.
-        # ============================================
+        # Preprocessing: resize saja.
+        # PENTING: layer Rescaling(1./127.5, offset=-1) sudah ada DI DALAM
+        # arsitektur model (lihat cell arsitektur MobileNetV2 di notebook),
+        # jadi di sini TIDAK boleh dinormalisasi manual lagi supaya tidak
+        # double-scaling. Input yang dikirim ke model tetap piksel asli 0-255.
         img_resized = img.resize(IMG_SIZE)
-
         img_array = image.img_to_array(img_resized)
-        img_array = np.expand_dims(img_array, axis=0)
+        img_array = np.expand_dims(img_array, axis=0)  # shape jadi (1, 128, 128, 3)
 
-        # ============================================
-        # PREDIKSI
-        # ============================================
+        # Prediksi
         with st.spinner("Memprediksi..."):
-            prediction = model.predict(
-                img_array,
-                verbose=0
-            )
+            prediction = model.predict(img_array)
 
-        # ============================================
-        # OUTPUT SIGMOID
-        # ============================================
-        # Notebook menggunakan:
-        # label 0 = apple
-        # label 1 = orange
-        #
-        # Karena output sigmoid:
-        # prediction > 0.5 -> orange
-        # prediction <= 0.5 -> apple
-        # ============================================
+        # Output sigmoid (binary): prediction berbentuk [[nilai]]
+        # urutan class_names dari notebook: ['apple', 'orange'] -> orange = label 1
         orange_prob = float(prediction[0][0])
-        apple_prob = 1.0 - orange_prob
+        apple_prob = 1 - orange_prob
 
-        if orange_prob > 0.5:
-            predicted_class = CLASS_NAMES[1]
-            final_confidence = orange_prob
-        else:
-            predicted_class = CLASS_NAMES[0]
-            final_confidence = apple_prob
+        predicted_class = CLASS_NAMES[1] if orange_prob > 0.5 else CLASS_NAMES[0]
+        final_confidence = orange_prob if orange_prob > 0.5 else apple_prob
 
-        # ============================================
-        # HASIL KLASIFIKASI
-        # ============================================
+        # 4 & 5. Hasil Klasifikasi + Tingkat Kepercayaan
         with st.container(border=True):
-
             st.subheader("Hasil Klasifikasi")
+            st.markdown(f"**Jenis Gambar:** {predicted_class.upper()}")
+            st.markdown(f"**Tingkat Kepercayaan:** {final_confidence*100:.2f}%")
 
-            st.markdown(
-                f"**Jenis Gambar:** {predicted_class.upper()}"
-            )
-
-            st.markdown(
-                f"**Tingkat Kepercayaan:** "
-                f"{final_confidence * 100:.2f}%"
-            )
-
-            # ========================================
-            # PROBABILITAS MASING-MASING KELAS
-            # ========================================
+            # 6. Probabilitas masing-masing kelas
             st.markdown("**Probabilitas Kelas:**")
 
             st.markdown(f"""
